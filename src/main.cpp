@@ -1,5 +1,8 @@
 #include <Arduino.h>
 
+#include <SharpIRArray.h>
+
+#include <Adafruit_ADS1X15.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
@@ -40,6 +43,15 @@ Melodie melodie(pinBuzzer);
 Encodeur encodeur(pinEncD_B, pinEncD_A, pinEncG_A, pinEncG_B);
 int countD = 0;
 int countG = 0;
+
+// ------------------------- Déclaration des variables des capteurs de distance ------------------------
+
+Adafruit_ADS1115 ads; // Adresse I2C de l'ADS1115
+bool ads_ok = true;
+int16_t dist_Av_G, dist_Av_D, dist_Ar_G, dist_Ar_D;
+
+bool filters[4] = {true, false, true, true};
+SharpIRArray sharpArray(&ads, filters);
 
 // ------------------------- Déclaration des variables du mpu ------------------------
 
@@ -120,6 +132,7 @@ int countG_prec = 0;
 void getInclinaison(float &angleX, float &angleY, float &angleZ);
 float asservissementVitesse(float consigne, float mesure);
 void reception(char ch);
+void readDistance();
 
 // --------------------- Fonction de calcul des angles ---------------------
 
@@ -281,11 +294,21 @@ void setup()
   {
     Serial.println("Failed to find MPU6050 chip");
     mpu_ok = false;
-    delay(10);
   }
   else
   {
     Serial.println("MPU6050 Found!");
+  }
+
+  if (!ads.begin())
+  {
+    Serial.println("Failed to initialize ADS.");
+    ads_ok = false;
+    sharpArray.setADSOk(false);
+  }
+  else
+  {
+    Serial.println("ADS initialized.");
   }
 
   xTaskCreate(controle, "controle", 10000, NULL, 5, NULL);
@@ -306,18 +329,6 @@ void setup()
   SerialBT.register_callback(callback);
 
   moteurs.setAlphaFrottement(0.15);
-  // melodie.choisirMelodie(2);
-
-  // Test des moteurs
-  moteurs.setVitesses(0, 0);
-  delay(1000);
-  moteurs.setVitesses(100, 100);
-  delay(1000);
-  moteurs.setVitesses(0, 0);
-  delay(1000);
-  moteurs.setVitesses(-100, -100);
-  delay(1000);
-  moteurs.setVitesses(0, 0);
 }
 
 void reception(char ch)
@@ -459,7 +470,7 @@ void loop()
   float angleX, angleY, angleZ;
 
   // Obtenir les angles d'inclinaison
-  getInclinaison(angleX, angleY, angleZ);
+  // getInclinaison(angleX, angleY, angleZ);
 
   // Afficher les angles sur le moniteur série
   // Serial.printf("Inclinaison - X: %3.2f°, Y: %3.2f°, Z: %3.2f°\n", angleX, angleY, angleZ);
@@ -467,19 +478,46 @@ void loop()
   delay(500); // Attendre un peu avant la prochaine lecture
 
   // Calcul de la tension de la batterie
-  int readAnalog = analogRead(pinBatterie); // Lecture de la valeur analogique
+  int readAnalog = analogRead(pinBatterie);                  // Lecture de la valeur analogique
   float tensionMesuree = readAnalog * (3.3 / 4095.0) + 0.31; // Conversion en tension mesurée
-  float tension = 3.472 * tensionMesuree + 0.028;                  // Conversion en tension réelle
+  float tension = 3.472 * tensionMesuree + 0.028;            // Conversion en tension réelle
   //Serial.printf("Tension: %3.2fV | Tension mesuré: %3.2fV | Valeur: %d\n", tension, tensionMesuree, readAnalog);
   if (tension < 6.9)
   {
     digitalWrite(pinLed, HIGH);
-    //tension_ok = false;
-    // melodie.choisirMelodie(1);
+    // tension_ok = false;
+    //  melodie.choisirMelodie(1);
   }
   else
   {
     digitalWrite(pinLed, LOW);
+  }
+
+  // Lecture de la distance
+  readDistance();
+}
+
+void readDistance()
+{
+  if (ads_ok)
+  {
+    sharpArray.update();
+
+    for (int i = 0; i < 4; ++i)
+    {
+      Serial.print("Capteur ");
+      Serial.print(i);
+      Serial.print(": ");
+      Serial.print(sharpArray.getDistanceMM(i));
+      Serial.println(" mm");
+    }
+  }
+  else
+  {
+    dist_Av_G = 0;
+    dist_Av_D = 0;
+    dist_Ar_G = 0;
+    dist_Ar_D = 0;
   }
 }
 
