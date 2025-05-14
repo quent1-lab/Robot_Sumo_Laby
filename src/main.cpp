@@ -281,7 +281,7 @@ void setup()
 {
   Serial.begin(115200);
 
-  pinMode(pinLed, OUTPUT);
+  pinMode(pinLed, OUTPUT);///
   pinMode(pinBuzzer, OUTPUT);
   pinMode(pinBatterie, INPUT);
   pinMode(pinEncD_A, INPUT);
