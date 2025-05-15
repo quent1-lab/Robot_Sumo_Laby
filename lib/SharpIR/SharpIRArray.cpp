@@ -2,8 +2,7 @@
 #include <Arduino.h>
 #include <math.h>
 
-SharpIRArray::SharpIRArray(Adafruit_ADS1115 &ads)
-    : _ads(ads)
+SharpIRArray::SharpIRArray()
 {
     for (int i = 0; i < NB_SENSORS; i++)
     {
@@ -62,7 +61,7 @@ void SharpIRArray::getAllDistances(int distances[NB_SENSORS])
     }
 }
 
-int SharpIRArray::readSensorRaw(int channel) const
+int SharpIRArray::readSensorRaw(int channel)
 {
     // Lit directement la dernière conversion continue
     return _ads.readADC_SingleEnded(channel);

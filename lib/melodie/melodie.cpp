@@ -30,6 +30,7 @@ void Melodie::choisirMelodie(int melodie)
         playMelody(melodie_Minecraft, duree_Minecraft, taille_Minecraft);
         break;
     default:
+        stop();
         break;
     }
 }
@@ -57,17 +58,6 @@ void Melodie::bib(int count, int freq, uint32_t dur, uint32_t gap)
     _beepFreq = freq;
     _beepDur = dur;
     _beepGap = gap;
-    _beepIdx = 0;
-    _playingBeep = true;
-    _beepNext = millis();
-}
-
-void Melodie::bib(int count, int freq, uint32_t dur)
-{
-    _beepCount = count;
-    _beepFreq = freq;
-    _beepDur = dur;
-    _beepGap = dur;
     _beepIdx = 0;
     _playingBeep = true;
     _beepNext = millis();

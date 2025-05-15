@@ -1,91 +1,97 @@
-
-#include <Arduino.h>
-#include <stdio.h>
-#include <inttypes.h>
-
 #include "bouton.h"
 
+Bouton::Bouton() {}
 
-
-bouton::bouton()
-{
-    
+void Bouton::begin(int pin, bool activeLow, int clickDelay, int pressDelay, int debounceDelay, int doubleClickDelay) {
+    this->pin = pin;
+    this->activeLow = activeLow;
+    this->delayClick = clickDelay;
+    this->delayPress = pressDelay;
+    this->delayDebounce = debounceDelay;
+    this->delayDoubleClick = doubleClickDelay;
+    pinMode(pin, INPUT);
 }
 
-void bouton::begin(int pin, bool type_bt, int delay_click, int delay_press, int delay_rebond)
-{
-    PIN = pin;
-    pinMode(pin,INPUT);
-    DELAY_CLICK = delay_click;
-    DELAY_PRESS = delay_press;
-    DELAY_REBOND = delay_rebond;
-    DELAY_RESET = 2500;
-    TYPE = type_bt;
-    TIME_BT = millis();
+int Bouton::readRaw() {
+    return digitalRead(pin);
 }
 
-void bouton::read_Bt()
-{
-    timer_reset();
-    if (d_read() == !TYPE && ETAT == 0)
-    {
-        ETAT = 1;
-        reset();
+bool Bouton::debouncedRead() {
+    int val = readRaw();
+    if (val != lastStableState) {
+        if (millis() - lastChangeTime > delayDebounce) {
+            lastStableState = val;
+            lastChangeTime = millis();
+            return true;
+        }
     }
-    if (d_read() == !TYPE && ETAT == 1 && timer(DELAY_PRESS))
-    {
-        ETAT = 3;
-        return;
+    return false;
+}
+
+void Bouton::update() {
+    int reading = readRaw();
+    //Serial.println(reading);
+    bool pressed = (reading == (activeLow ? LOW : HIGH));
+
+    if (debouncedRead()) {
+        if (pressed) {
+            lastPressTime = millis();
+            held = false;
+        } else {
+            unsigned long now = millis();
+            if (now - lastPressTime < delayPress) {
+                if (waitingSecondClick && now - lastClickTime < delayDoubleClick) {
+                    state = DoubleClick;
+                    waitingSecondClick = false;
+                } else {
+                    waitingSecondClick = true;
+                    lastClickTime = now;
+                    state = Click;
+                }
+            } else {
+                state = Press;
+            }
+        }
     }
-    else if (d_read() == TYPE && ETAT == 1 && timer(DELAY_CLICK))
-    {
-        ETAT = 2;
-        return;
+
+    if (pressed && !held && millis() - lastPressTime >= delayPress) {
+        held = true;
+        state = Hold;
+    }
+
+    if (waitingSecondClick && millis() - lastClickTime > delayDoubleClick) {
+        waitingSecondClick = false;
     }
 }
 
-bool bouton::click()
-{
-    if (ETAT == 2)
-    {
-        ETAT = 0;
+bool Bouton::wasClicked() {
+    if (state == Click) {
+        state = Idle;
         return true;
-    } else return false;
-}
-
-bool bouton::press()
-{
-    if (ETAT == 3)
-    {
-        ETAT = 0;
-        reset();
-        return true;
-    } else return false;
-}
-
-int bouton::d_read()
-{
-    return digitalRead(PIN);
-}
-
-void bouton::reset()
-{
-    TIME_BT = millis();
-}
-
-bool bouton::timer(int delay)
-{
-    if (millis() > TIME_BT + delay){
-        return true;
-    } else return false;
-}
-
-int bouton::etat(){
-    return ETAT;
-}
-
-void bouton::timer_reset(){
-    if(ETAT != 0 && timer(DELAY_RESET)){
-        ETAT = 0;
     }
+    return false;
+}
+
+bool Bouton::wasDoubleClicked() {
+    if (state == DoubleClick) {
+        state = Idle;
+        return true;
+    }
+    return false;
+}
+
+bool Bouton::wasPressed() {
+    if (state == Press) {
+        state = Idle;
+        return true;
+    }
+    return false;
+}
+
+bool Bouton::isHeld() {
+    return state == Hold;
+}
+
+Bouton::EtatBouton Bouton::getState() {
+    return static_cast<EtatBouton>(state);
 }

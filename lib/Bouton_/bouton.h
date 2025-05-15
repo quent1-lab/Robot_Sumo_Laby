@@ -1,31 +1,46 @@
+#pragma once
+#include <Arduino.h>
 
+class Bouton {
+public:
+    enum EtatBouton {
+        Idle = 0,
+        Click,
+        Press,
+        Hold,
+        DoubleClick
+    };
 
+    Bouton();
 
-class bouton{
+    void begin(int pin, bool activeLow = true, int clickDelay = 150, int pressDelay = 500, int debounceDelay = 30, int doubleClickDelay = 400);
+    void update();
 
-    public:
-        bouton();
+    bool wasClicked();
+    bool wasDoubleClicked();
+    bool wasPressed();
+    bool isHeld();
+    EtatBouton getState();
 
-        void begin(int pin,bool type_bt,int delay_click,int delay_press,int delay_rebond);
+private:
+    int pin;
+    bool activeLow;
+    int state = Idle;
+    int lastStableState = HIGH;
 
-        bool click();
-        bool press();
-        void read_Bt();
-        int etat();
-    
-    private:
-        bool timer(int delay);
-        void reset();  
-        int d_read(); 
-        void timer_reset();
+    unsigned long lastChangeTime = 0;
+    unsigned long lastPressTime = 0;
+    unsigned long lastReleaseTime = 0;
+    unsigned long lastClickTime = 0;
 
-        int PIN;
-        unsigned int TIME_BT;
-        bool TYPE;
-        int ETAT = 0;
+    int delayClick;
+    int delayPress;
+    int delayDebounce;
+    int delayDoubleClick;
 
-        int DELAY_CLICK;
-        int DELAY_PRESS;
-        int DELAY_REBOND;
-        int DELAY_RESET;
+    bool waitingSecondClick = false;
+    bool held = false;
+
+    int readRaw();
+    bool debouncedRead();
 };

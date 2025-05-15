@@ -43,7 +43,7 @@ void ControleMoteur::setFriction(float fricD, float fricG)
 void ControleMoteur::setSpeed(int speedD, int speedG)
 {
     _targetD = constrain(speedD, -100, 100);
-    _targetG = constrain(speedG, -100, 100);
+    _targetG = constrain(-speedG, -100, 100);
 }
 
 void ControleMoteur::setRampRate(float percentPerSecond)
@@ -133,9 +133,11 @@ void ControleMoteur::update()
         _currentG += (_targetG > _currentG ? rampStep : -rampStep);
 
     // Appliquer seuil frottement
-    float outD = (_currentD > 0 ? max(_currentD, _fricThreshD) : min(_currentD, -_fricThreshD));
-    float outG = (_currentG > 0 ? max(_currentG, _fricThreshG) : min(_currentG, -_fricThreshG));
-
+    float outD, outG;
+    outD = (_currentD > 0 ? map(_currentD, 0, 100, _fricThreshD, 100) : map(_currentD, -100, 0, -100, -_fricThreshD));
+    outG = (_currentG > 0 ? map(_currentG, 0, 100, _fricThreshG, 100) : map(_currentG, -100, 0, -100, -_fricThreshG));
+    if (_currentD == 0) outD = 10;
+    if (_currentG == 0) outG = 10;
     applyPWM(outD, outG);
 }
 
@@ -151,21 +153,26 @@ void ControleMoteur::applyPWM(float cmdD, float cmdG)
     // Convertir -100..100 en 0..255 PWM unipolaire et commandes sens
     auto pwmCalc = [&](float cmd, int chA, int chB)
     {
-        int s = (cmd >= 0);
-        uint8_t duty = uint8_t(min(abs(cmd) / 100.0f * 255.0f, 255.0f));
+        int s = (cmd >= 0); // Détermine le sens (1 = avant, 0 = arrière)
+        uint8_t duty = uint8_t(min(abs(cmd) / 100.0f * 255.0f, 255.0f)); // Calcule le rapport cyclique (duty cycle)
+        
         if (s)
         {
+            // Si le sens est avant, active chA et désactive chB
             ledcWrite(chA, duty);
             ledcWrite(chB, 0);
         }
         else
         {
+            // Si le sens est arrière, active chB et désactive chA
             ledcWrite(chA, 0);
             ledcWrite(chB, duty);
         }
     };
-    pwmCalc(cmdD, _ch1, _ch2);
-    pwmCalc(cmdG, _ch3, _ch4);
+
+    // Applique le calcul PWM pour les deux moteurs
+    pwmCalc(cmdD, _ch1, _ch2); // Moteur droit
+    pwmCalc(cmdG, _ch3, _ch4); // Moteur gauche
 }
 
 void ControleMoteur::readMPU(float dt)

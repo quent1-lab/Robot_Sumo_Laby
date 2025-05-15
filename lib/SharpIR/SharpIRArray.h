@@ -3,13 +3,13 @@
 
 #include <Adafruit_ADS1X15.h>
 
-#define NB_SENSORS 3
+#define NB_SENSORS 4
 #define NB_SAMPLE 1
 
 class SharpIRArray
 {
 public:
-    SharpIRArray(Adafruit_ADS1115 &ads);
+    SharpIRArray();
 
     void update();                                   // Met à jour toutes les distances
     void begin();                                    // Initialise le capteur
@@ -19,11 +19,11 @@ public:
     bool getADSOk() { return _ads_ok; } // Getter pour l'état de l'ADS
 
 private:
-    Adafruit_ADS1115 &_ads;
+    Adafruit_ADS1115 _ads;
     int _distances[NB_SENSORS];
     bool _ads_ok = true; // État de l'ADS
 
-    int readSensorRaw(int channel) const;
+    int readSensorRaw(int channel);
     int computeDistanceMM(int raw) const;
 };
 

@@ -20,7 +20,6 @@ public:
   // dur: durée du bip en ms
   // gap: intervalle entre deux bips en ms
   void bib(int count, int freq, uint32_t dur, uint32_t gap);
-  void bib(int count, int freq, uint32_t dur);
 
   // À appeler fréquemment dans loop(), gère la progression
   void update();
