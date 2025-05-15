@@ -1,152 +1,179 @@
 // ControleMoteur.cpp
 #include "ControleMoteur.h"
-#include <Wire.h>
 
-#define ACC_SENSITIVITY 16384.0f
-#define G_TO_MS2 9.80665f
-
-ControleMoteur::ControleMoteur(uint8_t in1, uint8_t in2, uint8_t in3, uint8_t in4)
+ControleMoteur::ControleMoteur(int in1, int in2, int in3, int in4)
     : _in1(in1), _in2(in2), _in3(in3), _in4(in4),
-      _ch1(0), _ch2(1), _ch3(2), _ch4(3),
-      _imu(nullptr), _hasIMU(false),
-      _targetL(0), _targetR(0), _currentL(0), _currentR(0),
-      _rampRate(50.0f), _alphaFrot(0.1f),
-      _frictionOffsetL(0), _frictionOffsetR(0),
-      _headingCorr(false), _heading0(0),
-      _kp(1.0f), _ki(0.0f), _kd(0.1f), _errInt(0), _lastErr(0),
-      _vel(0), _accOffsetX(0), _lastTime(0)
+      _ch1(2), _ch2(3), _ch3(4), _ch4(5), _freq(20000), _res(8),
+      _targetD(0), _targetG(0), _currentD(0), _currentG(0), _rampRate(100),
+      _fricThreshD(0), _fricThreshG(0), _headingCtrl(false), _headingTarget(0), _heading(0),
+      _kp(1.0), _ki(0.0), _kd(0.0), _iTerm(0), _lastError(0), _lastUpdate(0)
 {
 }
 
 void ControleMoteur::begin()
 {
-    ledcSetup(_ch1, 20000, 8);
-    ledcSetup(_ch2, 20000, 8);
-    ledcSetup(_ch3, 20000, 8);
-    ledcSetup(_ch4, 20000, 8);
-    ledcAttachPin(_in1, _ch1);
-    ledcAttachPin(_in2, _ch2);
-    ledcAttachPin(_in3, _ch3);
-    ledcAttachPin(_in4, _ch4);
     pinMode(_in1, OUTPUT);
     pinMode(_in2, OUTPUT);
     pinMode(_in3, OUTPUT);
     pinMode(_in4, OUTPUT);
+    ledcSetup(_ch1, _freq, _res);
+    ledcSetup(_ch2, _freq, _res);
+    ledcSetup(_ch3, _freq, _res);
+    ledcSetup(_ch4, _freq, _res);
+    ledcAttachPin(_in1, _ch1);
+    ledcAttachPin(_in2, _ch2);
+    ledcAttachPin(_in3, _ch3);
+    ledcAttachPin(_in4, _ch4);
 
-    _lastTime = millis();
-    if (_hasIMU)
+    // Initialiser IMU
+    if (!_mpu.begin())
     {
-        sensors_event_t a, g, temp;
-        _imu->getEvent(&a, &g, &temp);
-        _accOffsetX = a.acceleration.x;
-        _heading0 = computeYaw(0);
+        Serial.println("IMU non trouvee");
     }
+    _mpu.setAccelerometerRange(MPU6050_RANGE_4_G);
+    _mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+    _mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+
+    _lastUpdate = millis();
 }
 
-void ControleMoteur::attachIMU(Adafruit_MPU6050 &imu)
+void ControleMoteur::setSpeed(int speedD, int speedG)
 {
-    _imu = &imu;
-    _hasIMU = true;
+    _targetD = constrain(speedD, -100, 100);
+    _targetG = constrain(speedG, -100, 100);
 }
 
-void ControleMoteur::setTargetSpeeds(int16_t leftPct, int16_t rightPct)
+void ControleMoteur::setRampRate(float percentPerSecond)
 {
-    _targetL = constrain(leftPct, -100, 100);
-    _targetR = constrain(rightPct, -100, 100);
+    _rampRate = max(percentPerSecond, 1.0f);
 }
 
-void ControleMoteur::setRampRate(float pctPerSec) { _rampRate = max(1.0f, pctPerSec); }
-void ControleMoteur::setFrictionAlpha(float a) { _alphaFrot = constrain(a, 0.0f, 1.0f); }
-void ControleMoteur::enableHeadingCorrection(bool e) { _headingCorr = e; }
-
-void ControleMoteur::calibrateFriction(uint32_t ms)
+void ControleMoteur::enableHeadingControl(bool enable)
 {
-    uint32_t t0 = millis();
-    float sumL = 0, sumR = 0;
-    int n = 0;
-    while (millis() - t0 < ms)
+    _headingCtrl = enable;
+    _iTerm = 0;
+    _lastError = 0;
+}
+
+void ControleMoteur::setHeadingTarget(float headingDeg)
+{
+    _headingTarget = headingDeg;
+}
+
+void ControleMoteur::calibrateFriction()
+{
+    Serial.println("Calibration frottement moteur Droit: appuyez sur Entree quand bruit de roulement");
+    for (float cmd = 0; cmd <= 100; cmd += 5)
     {
-        sumL += _currentL;
-        sumR += _currentR;
-        n++;
-        delay(5);
+        applyPWM(cmd, 0);
+        Serial.printf("Cmd Droit=%.0f\n", cmd);
+        delay(500);
+        if (Serial.available())
+        {
+            _fricThreshD = cmd;
+            while (Serial.available())
+                Serial.read();
+            break;
+        }
     }
-    _frictionOffsetL = sumL / n;
-    _frictionOffsetR = sumR / n;
+    Serial.printf("Seuil frottement Droit=%.0f\n", _fricThreshD);
+
+    Serial.println("Calibration frottement moteur Gauche: appuyez sur Entree");
+    for (float cmd = 0; cmd <= 100; cmd += 5)
+    {
+        applyPWM(0, cmd);
+        Serial.printf("Cmd Gauche=%.0f\n", cmd);
+        delay(500);
+        if (Serial.available())
+        {
+            _fricThreshG = cmd;
+            while (Serial.available())
+                Serial.read();
+            break;
+        }
+    }
+    Serial.printf("Seuil frottement Gauche=%.0f\n", _fricThreshG);
+
+    stop();
 }
 
 void ControleMoteur::update()
 {
     uint32_t now = millis();
-    float dt = (now - _lastTime) * 1e-3f;
-    _lastTime = now;
+    float dt = (now - _lastUpdate) / 1000.0f;
+    _lastUpdate = now;
 
-    float corr = 0;
-    if (_headingCorr && _hasIMU)
+    // Mettre à jour estimation de cap
+    readIMU(dt);
+
+    // Appliquer asservissement de cap
+    if (_headingCtrl)
     {
-        float yaw = computeYaw(dt);
-        float e = yaw - _heading0;
-        _errInt += e * dt;
-        corr = _kp * e + _ki * _errInt + _kd * ((e - _lastErr) / dt);
-        _lastErr = e;
+        float error = _headingTarget - _heading;
+        _iTerm += _ki * error * dt;
+        float dTerm = _kd * (error - _lastError) / dt;
+        float corr = _kp * error + _iTerm + dTerm;
+        _lastError = error;
+        // corrige la consigne différentielle
+        setSpeed(_targetD + corr, _targetG - corr);
     }
 
-    auto ramp = [&](float &c, float t)
-    {float d=t-c, m=_rampRate*dt; c+=constrain(d,-m,m); };
-    ramp(_currentL, _targetL);
-    ramp(_currentR, _targetR);
+    // Appliquer rampe
+    float rampStep = _rampRate * dt;
+    if (abs(_currentD - _targetD) < rampStep)
+        _currentD = _targetD;
+    else
+        _currentD += (_targetD > _currentD ? rampStep : -rampStep);
+    if (abs(_currentG - _targetG) < rampStep)
+        _currentG = _targetG;
+    else
+        _currentG += (_targetG > _currentG ? rampStep : -rampStep);
 
-    float vL = _currentL * (1 + _alphaFrot) - _frictionOffsetL + corr;
-    float vR = _currentR * (1 + _alphaFrot) - _frictionOffsetR - corr;
+    // Appliquer seuil frottement
+    float outD = (_currentD > 0 ? max(_currentD, _fricThreshD) : min(_currentD, -_fricThreshD));
+    float outG = (_currentG > 0 ? max(_currentG, _fricThreshG) : min(_currentG, -_fricThreshG));
 
-    applyPWM(vL, vR);
-
-    if (_hasIMU)
-        updateVelocity(dt);
+    applyPWM(outD, outG);
 }
 
-void ControleMoteur::applyPWM(float lv, float rv)
+void ControleMoteur::stop()
 {
-    auto toP = [&](float v)
-    { return uint8_t(255 * abs(constrain(v, -100, 100)) / 100.0f); };
-    uint8_t pL = toP(lv), pR = toP(rv);
-    if (lv >= 0)
-    {
-        ledcWrite(_ch1, pL);
-        ledcWrite(_ch2, 0);
-    }
-    else
-    {
-        ledcWrite(_ch1, 0);
-        ledcWrite(_ch2, pL);
-    }
-    if (rv >= 0)
-    {
-        ledcWrite(_ch3, pR);
-        ledcWrite(_ch4, 0);
-    }
-    else
-    {
-        ledcWrite(_ch3, 0);
-        ledcWrite(_ch4, pR);
-    }
+    _targetD = _targetG = 0;
+    _currentD = _currentG = 0;
+    applyPWM(0, 0);
 }
 
-float ControleMoteur::computeYaw(float dt)
+void ControleMoteur::applyPWM(float cmdD, float cmdG)
+{
+    // Convertir -100..100 en 0..255 PWM unipolaire et commandes sens
+    auto pwmCalc = [&](float cmd, int chA, int chB)
+    {
+        int s = (cmd >= 0);
+        uint8_t duty = uint8_t(min(abs(cmd) / 100.0f * 255.0f, 255.0f));
+        if (s)
+        {
+            ledcWrite(chA, duty);
+            ledcWrite(chB, 0);
+        }
+        else
+        {
+            ledcWrite(chA, 0);
+            ledcWrite(chB, duty);
+        }
+    };
+    pwmCalc(cmdD, _ch1, _ch2);
+    pwmCalc(cmdG, _ch3, _ch4);
+}
+
+void ControleMoteur::readIMU(float dt)
 {
     sensors_event_t a, g, temp;
-    _imu->getEvent(&a, &g, &temp);
-    static float y = 0;
-    y += g.gyro.z * dt;
-    return y;
+    _mpu.getEvent(&a, &g, &temp);
+    // Intégration gyroscopique sur Z pour cap
+    _heading += g.gyro.z * dt * 180.0f / PI;
+    // normaliser angle
+    if (_heading > 180)
+        _heading -= 360;
+    if (_heading < -180)
+        _heading += 360;
 }
-
-void ControleMoteur::updateVelocity(float dt)
-{
-    sensors_event_t a, g, temp;
-    _imu->getEvent(&a, &g, &temp);
-    float ax = (a.acceleration.x - _accOffsetX) * G_TO_MS2;
-    _vel += ax * dt;
-}
-
-float ControleMoteur::getLinearSpeed() const { return _vel; }

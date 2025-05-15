@@ -1,25 +1,26 @@
-#include <Wire.h>
-#include <Adafruit_MPU6050.h>
+// Exemple d'utilisation (main.ino)
+#include <Arduino.h>
 #include "ControleMoteur.h"
 
-Adafruit_MPU6050 imu;
-ControleMoteur cm(2,3,4,5);
+ControleMoteur motors(14, 27, 26, 25);
 
-void setup() {
-  Serial.begin(115200);
-  Wire.begin();
-  imu.begin();           // initialisation en main
-  cm.attachIMU(imu);          // lien vers la lib
-  cm.begin();
+void setup()
+{
+    Serial.begin(115200);
+    motors.begin();
 
-  cm.calibrateFriction(2000);
-  cm.setRampRate(80);
-  cm.setFrictionAlpha(0.1);
-  cm.enableHeadingCorrection(true);
-  cm.setTargetSpeeds(50,50);
+    // Calibration frottement
+    delay(1000);
+    motors.calibrateFriction();
+
+    motors.setRampRate(200); // 200%/s
+    motors.enableHeadingControl(true);
+    motors.setHeadingTarget(0);
+    motors.setSpeed(50, 50);
 }
 
-void loop() {
-  cm.update();
-  // ...
+void loop()
+{
+    motors.update();
+    // Ici on pourrait changer target ou heading
 }
