@@ -36,7 +36,7 @@ const int pinBatterie = 34;
 
 // ------------------------- Déclaration des variables pour la mélodie ------------------------
 
-Melodie melodie(pinBuzzer);
+Melodie music(pinBuzzer);
 
 // ------------------------- Déclaration des variables des encodeurs ------------------------
 
@@ -322,6 +322,7 @@ void setup()
 
   moteurs.setAlphaFrottement(0.15);
   delay(100);
+  music.bib(2, 2000, 100, 100);
 }
 
 void reception(char ch)
@@ -440,6 +441,10 @@ void reception(char ch)
 
 void loop()
 {
+  music.update();
+  sharpArray.update();
+  readDistance();
+
   if (FlagCalcul == 1)
   {
     /*// Allouer de la mémoire pour la chaîne à envoyer
@@ -460,19 +465,15 @@ void loop()
     // printf("%3.5lf %3.5lf %5.6lf %1.6lf \n", vitesse_F, terme_prop_v, direction, commande_v);
   }
 
-  float angleX, angleY, angleZ;
-
   // Obtenir les angles d'inclinaison
+  // float angleX, angleY, angleZ;
   // getInclinaison(angleX, angleY, angleZ);
 
   // Afficher les angles sur le moniteur série
   // Serial.printf("Inclinaison - X: %3.2f°, Y: %3.2f°, Z: %3.2f°\n", angleX, angleY, angleZ);
 
-  
-
   // Calcul de la tension de la batterie
-  int readAnalog = analogRead(pinBatterie);                  // Lecture de la valeur analogique
-  float tensionMesuree = readAnalog * (3.3 / 4095.0) + 0.31; // Conversion en tension mesurée
+  float tensionMesuree = analogRead(pinBatterie) * (3.3 / 4095.0) + 0.31; // Conversion en tension mesurée
   float tension = 3.472 * tensionMesuree + 0.028;            // Conversion en tension réelle
   //Serial.printf("Tension: %3.2fV | Tension mesuré: %3.2fV | Valeur: %d\n", tension, tensionMesuree, readAnalog);
 
@@ -480,15 +481,12 @@ void loop()
   {
     digitalWrite(pinLed, HIGH);
     // tension_ok = false;
-    //  melodie.choisirMelodie(1);
+    music.bib(3, 2000, 200, 100);
   }
   else
   {
     digitalWrite(pinLed, LOW);
   }
-
-  // Lecture de la distance
-  readDistance();
 
   delay(50); // Attendre un peu avant la prochaine lecture
 }
