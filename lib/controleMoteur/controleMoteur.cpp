@@ -34,6 +34,12 @@ void ControleMoteur::begin()
     _lastUpdate = millis();
 }
 
+void ControleMoteur::setFriction(float fricD, float fricG)
+{
+    _fricThreshD = constrain(fricD, 0.0f, 100.0f);
+    _fricThreshG = constrain(fricG, 0.0f, 100.0f);
+}
+
 void ControleMoteur::setSpeed(int speedD, int speedG)
 {
     _targetD = constrain(speedD, -100, 100);

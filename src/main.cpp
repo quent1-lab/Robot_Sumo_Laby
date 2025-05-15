@@ -24,6 +24,11 @@ ControleMoteur motors(19, 18, 5, 17);
 int vitesseMoteurG = 0;
 int vitesseMoteurD = 0;
 
+// Durée (ms) de chaque phase de test
+constexpr uint32_t PHASE_DURATION = 3000;
+// Intervalle entre chaque phase (ms)
+constexpr uint32_t PAUSE_DURATION = 1000;
+
 // ------------------------- Déclaration des variables des pins ------------------------
 
 const int pinLed = 23;
@@ -299,10 +304,10 @@ void setup()
   else
   {
     mpu_ok = true;
-    motors.setIMU(&mpu);
     mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
     mpu.setGyroRange(MPU6050_RANGE_2000_DEG);
     mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+    motors.attachMPU(mpu);
   }
 
   sharpArray.begin();
@@ -310,9 +315,9 @@ void setup()
 
   //motors.calibrateFriction(2000);
   motors.setRampRate(80);
-  motors.setFrictionAlpha(0.1);
-  motors.enableHeadingCorrection(false);
-  motors.setTargetSpeeds(0,0);
+  motors.setFriction(0.0, 0.0);
+  motors.enableHeadingControl(false);
+  motors.setSpeed(0, 0);
 
   xTaskCreate(controle, "controle", 10000, NULL, 5, NULL);
   xTaskCreate(vReceptionBT, "vReceptionBT", 10000, NULL, 8, NULL);
@@ -387,7 +392,7 @@ void reception(char ch)
     }
     if (commande == "af")
     {
-      motors.setFrictionAlpha(valeur.toFloat());
+      motors.setFriction(valeur.toFloat(), valeur.toFloat());
     }
     if (commande == "th")
     {
@@ -499,6 +504,56 @@ void loop()
   }
 
   delay(50); // Attendre un peu avant la prochaine lecture
+}
+
+void testMotors() {
+  static uint8_t phase = 0;
+  static uint32_t t0 = millis();
+
+  uint32_t now = millis();
+  if (now - t0 < PHASE_DURATION) {
+    // en cours de phase
+    switch (phase) {
+      case 0:
+        Serial.print("\rPhase 1: Marche avant   ");
+        motors.setSpeed( 60,  60);
+        break;
+      case 1:
+        Serial.print("\rPhase 2: Marche arriere ");
+        motors.setSpeed(-60, -60);
+        break;
+      case 2:
+        Serial.print("\rPhase 3: Rotation gauche");
+        motors.setSpeed(-50, 50);
+        break;
+      case 3:
+        Serial.print("\rPhase 4: Rotation droite");
+        motors.setSpeed( 50,-50);
+        break;
+    }
+    motors.update();
+  }
+  else if (now - t0 < PHASE_DURATION + PAUSE_DURATION) {
+    // pause entre phases
+    if (phase < 4) {
+      motors.setSpeed(0, 0);
+      motors.update();
+      Serial.print("\rPause...               ");
+    }
+  }
+  else {
+    // passer à la phase suivante
+    phase++;
+    t0 = now;
+    if (phase > 4) {
+      Serial.println("\n=== Fin des tests ===");
+      motors.stop();
+      while (true) {
+        motors.update();  // on garde update actif pour couper proprement
+        delay(100);
+      }
+    }
+  }
 }
 
 void readDistance()

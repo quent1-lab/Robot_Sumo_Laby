@@ -17,6 +17,10 @@ public:
     // Initialise PWM, IMU, à appeler dans setup()
     void begin();
 
+    // Définit le coefficient de frottement pour chaque moteur
+    // (0..100% de la vitesse max)
+    void setFriction(float fricD, float fricG);
+
     // Définit la consigne de vitesse [-100..100] pour chaque moteur
     void setSpeed(int speedD, int speedG);
 
