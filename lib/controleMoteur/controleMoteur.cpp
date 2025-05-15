@@ -10,6 +10,12 @@ ControleMoteur::ControleMoteur(int in1, int in2, int in3, int in4)
 {
 }
 
+void ControleMoteur::attachMPU(Adafruit_MPU6050 &mpu)
+{
+    _mpu = &mpu;
+    _hasMPU = true;
+}
+
 void ControleMoteur::begin()
 {
     pinMode(_in1, OUTPUT);
@@ -24,15 +30,6 @@ void ControleMoteur::begin()
     ledcAttachPin(_in2, _ch2);
     ledcAttachPin(_in3, _ch3);
     ledcAttachPin(_in4, _ch4);
-
-    // Initialiser IMU
-    if (!_mpu.begin())
-    {
-        Serial.println("IMU non trouvee");
-    }
-    _mpu.setAccelerometerRange(MPU6050_RANGE_4_G);
-    _mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-    _mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
     _lastUpdate = millis();
 }
@@ -104,7 +101,7 @@ void ControleMoteur::update()
     _lastUpdate = now;
 
     // Mettre à jour estimation de cap
-    readIMU(dt);
+    readMPU(dt);
 
     // Appliquer asservissement de cap
     if (_headingCtrl)
@@ -165,10 +162,10 @@ void ControleMoteur::applyPWM(float cmdD, float cmdG)
     pwmCalc(cmdG, _ch3, _ch4);
 }
 
-void ControleMoteur::readIMU(float dt)
+void ControleMoteur::readMPU(float dt)
 {
     sensors_event_t a, g, temp;
-    _mpu.getEvent(&a, &g, &temp);
+    _mpu->getEvent(&a, &g, &temp);
     // Intégration gyroscopique sur Z pour cap
     _heading += g.gyro.z * dt * 180.0f / PI;
     // normaliser angle

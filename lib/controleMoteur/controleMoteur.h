@@ -12,6 +12,8 @@ public:
     // Constructeur: pins IN1, IN2 for moteur Droit, IN3, IN4 pour moteur Gauche
     ControleMoteur(int in1, int in2, int in3, int in4);
 
+    void attachMPU(Adafruit_MPU6050& mpu);
+
     // Initialise PWM, IMU, à appeler dans setup()
     void begin();
 
@@ -51,8 +53,9 @@ private:
     // Frottement
     float _fricThreshD, _fricThreshG; // seuil minimal pour mouvement
 
-    // IMU
-    Adafruit_MPU6050 _mpu;
+    // MPU
+    Adafruit_MPU6050* _mpu;
+    bool _hasMPU;
     bool _headingCtrl;
     float _headingTarget;
     float _heading;      // estimation
@@ -64,7 +67,7 @@ private:
 
     // Fonctions internes
     void applyPWM(float cmdD, float cmdG);
-    void readIMU(float dt);
+    void readMPU(float dt);
 };
 
 #endif // CONTROLE_MOTEUR_H

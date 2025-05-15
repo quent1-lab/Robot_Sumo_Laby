@@ -20,7 +20,7 @@ QueueHandle_t queueEnvoie;
 
 // ----------------------- Déclaration des variables des moteurs ---------------------
 
-ControleMoteur cm(19, 18, 5, 17);
+ControleMoteur motors(19, 18, 5, 17);
 int vitesseMoteurG = 0;
 int vitesseMoteurD = 0;
 
@@ -179,17 +179,17 @@ void controle(void *parameters)
 
     if (tension_ok == false)
     {
-      cm.setTargetSpeeds(0, 0);
+      motors.setSpeed(0, 0);
     }
     else
     {
       // float theta_consigne = asservissementVitesse(consigne_v, vitesse_F);
       float coefDirD = (rayon_consigne > 0) ? rayon_consigne : 0;
       float coefDirG = (rayon_consigne > 0) ? 0 : rayon_consigne;
-      cm.setTargetSpeeds(100 * consigne_v + coefDirD, 100 * consigne_v + coefDirG);
+      motors.setSpeed(100 * consigne_v + coefDirD, 100 * consigne_v + coefDirG);
     }
 
-    cm.update();
+    motors.update();
     FlagCalcul = 1;
 
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(Te));
@@ -299,20 +299,20 @@ void setup()
   else
   {
     mpu_ok = true;
-    cm.attachIMU(mpu); 
+    motors.setIMU(&mpu);
     mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
     mpu.setGyroRange(MPU6050_RANGE_2000_DEG);
     mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   }
 
   sharpArray.begin();
-  cm.begin();
+  motors.begin();
 
-  //cm.calibrateFriction(2000);
-  cm.setRampRate(80);
-  cm.setFrictionAlpha(0.1);
-  cm.enableHeadingCorrection(false);
-  cm.setTargetSpeeds(0,0);
+  //motors.calibrateFriction(2000);
+  motors.setRampRate(80);
+  motors.setFrictionAlpha(0.1);
+  motors.enableHeadingCorrection(false);
+  motors.setTargetSpeeds(0,0);
 
   xTaskCreate(controle, "controle", 10000, NULL, 5, NULL);
   xTaskCreate(vReceptionBT, "vReceptionBT", 10000, NULL, 8, NULL);
@@ -387,7 +387,7 @@ void reception(char ch)
     }
     if (commande == "af")
     {
-      cm.setFrictionAlpha(valeur.toFloat());
+      motors.setFrictionAlpha(valeur.toFloat());
     }
     if (commande == "th")
     {
