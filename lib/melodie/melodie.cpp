@@ -62,6 +62,17 @@ void Melodie::bib(int count, int freq, uint32_t dur, uint32_t gap)
     _beepNext = millis();
 }
 
+void Melodie::bib(int count, int freq, uint32_t dur)
+{
+    _beepCount = count;
+    _beepFreq = freq;
+    _beepDur = dur;
+    _beepGap = dur;
+    _beepIdx = 0;
+    _playingBeep = true;
+    _beepNext = millis();
+}
+
 void Melodie::update()
 {
     uint32_t now = millis();
