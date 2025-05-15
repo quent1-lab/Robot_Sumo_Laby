@@ -50,8 +50,7 @@ Adafruit_ADS1115 ads; // Adresse I2C de l'ADS1115
 bool ads_ok = true;
 int16_t dist_Av_G, dist_Av_D, dist_Ar_G, dist_Ar_D;
 
-bool filters[4] = {true, false, true, true};
-SharpIRArray sharpArray(&ads, filters);
+SharpIRArray sharpArray(ads);
 
 // ------------------------- Déclaration des variables du mpu ------------------------
 
@@ -280,6 +279,8 @@ void vEnvoieBT(void *pvParameters)
 void setup()
 {
   Serial.begin(115200);
+  Wire.begin();
+  Wire.setClock(400000); // ← I2C Fast Mode 400 kHz
 
   pinMode(pinLed, OUTPUT);///
   pinMode(pinBuzzer, OUTPUT);
@@ -300,16 +301,7 @@ void setup()
     Serial.println("MPU6050 Found!");
   }
 
-  if (!ads.begin())
-  {
-    Serial.println("Failed to initialize ADS.");
-    ads_ok = false;
-    sharpArray.setADSOk(false);
-  }
-  else
-  {
-    Serial.println("ADS initialized.");
-  }
+  sharpArray.begin();
 
   xTaskCreate(controle, "controle", 10000, NULL, 5, NULL);
   xTaskCreate(vReceptionBT, "vReceptionBT", 10000, NULL, 8, NULL);
@@ -329,6 +321,7 @@ void setup()
   SerialBT.register_callback(callback);
 
   moteurs.setAlphaFrottement(0.15);
+  delay(100);
 }
 
 void reception(char ch)
@@ -475,13 +468,14 @@ void loop()
   // Afficher les angles sur le moniteur série
   // Serial.printf("Inclinaison - X: %3.2f°, Y: %3.2f°, Z: %3.2f°\n", angleX, angleY, angleZ);
 
-  delay(500); // Attendre un peu avant la prochaine lecture
+  
 
   // Calcul de la tension de la batterie
   int readAnalog = analogRead(pinBatterie);                  // Lecture de la valeur analogique
   float tensionMesuree = readAnalog * (3.3 / 4095.0) + 0.31; // Conversion en tension mesurée
   float tension = 3.472 * tensionMesuree + 0.028;            // Conversion en tension réelle
   //Serial.printf("Tension: %3.2fV | Tension mesuré: %3.2fV | Valeur: %d\n", tension, tensionMesuree, readAnalog);
+
   if (tension < 6.9)
   {
     digitalWrite(pinLed, HIGH);
@@ -495,6 +489,8 @@ void loop()
 
   // Lecture de la distance
   readDistance();
+
+  delay(50); // Attendre un peu avant la prochaine lecture
 }
 
 void readDistance()
