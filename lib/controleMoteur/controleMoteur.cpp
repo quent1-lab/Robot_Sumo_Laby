@@ -1,81 +1,152 @@
-#include "controleMoteur.h"
+// ControleMoteur.cpp
+#include "ControleMoteur.h"
+#include <Wire.h>
 
-ControleMoteur::ControleMoteur(int in1, int in2, int in3, int in4)
+#define ACC_SENSITIVITY 16384.0f
+#define G_TO_MS2 9.80665f
+
+ControleMoteur::ControleMoteur(uint8_t in1, uint8_t in2, uint8_t in3, uint8_t in4)
+    : _in1(in1), _in2(in2), _in3(in3), _in4(in4),
+      _ch1(0), _ch2(1), _ch3(2), _ch4(3),
+      _imu(nullptr), _hasIMU(false),
+      _targetL(0), _targetR(0), _currentL(0), _currentR(0),
+      _rampRate(50.0f), _alphaFrot(0.1f),
+      _frictionOffsetL(0), _frictionOffsetR(0),
+      _headingCorr(false), _heading0(0),
+      _kp(1.0f), _ki(0.0f), _kd(0.1f), _errInt(0), _lastErr(0),
+      _vel(0), _accOffsetX(0), _lastTime(0)
 {
-    IN1 = in1;
-    IN2 = in2;
-    IN3 = in3;
-    IN4 = in4;
-
-    frequence = 20000;
-    resoltion = 8;
-    alphaFrottement = 0.1;
-    dir = 0;
-
-    pinMode(IN1, OUTPUT);
-    pinMode(IN2, OUTPUT);
-    pinMode(IN3, OUTPUT);
-    pinMode(IN4, OUTPUT);
-
-    ledcSetup(2, frequence, resoltion); // Canal 1
-    ledcSetup(3, frequence, resoltion); // Canal 2
-    ledcSetup(4, frequence, resoltion); // Canal 3
-    ledcSetup(5, frequence, resoltion); // Canal 4
-
-    ledcAttachPin(IN1, 2); // Attache le canal 1 à la broche IN1
-    ledcAttachPin(IN2, 3); // Attache le canal 2 à la broche IN2
-    ledcAttachPin(IN3, 4); // Attache le canal 3 à la broche IN3
-    ledcAttachPin(IN4, 5); // Attache le canal 4 à la broche IN4
 }
 
-void ControleMoteur::setVitesses(int vitesseMoteur1, int vitesseMoteur2)
+void ControleMoteur::begin()
 {
-    // La vitesse des moteurs est comprise entre -100 et 100 (pourcentage de la vitesse maximale)
-    this->vitesseMoteur1 = constrain(vitesseMoteur1, -100, 100);
-    this->vitesseMoteur2 = constrain(vitesseMoteur2, -100, 100);
+    ledcSetup(_ch1, 20000, 8);
+    ledcSetup(_ch2, 20000, 8);
+    ledcSetup(_ch3, 20000, 8);
+    ledcSetup(_ch4, 20000, 8);
+    ledcAttachPin(_in1, _ch1);
+    ledcAttachPin(_in2, _ch2);
+    ledcAttachPin(_in3, _ch3);
+    ledcAttachPin(_in4, _ch4);
+    pinMode(_in1, OUTPUT);
+    pinMode(_in2, OUTPUT);
+    pinMode(_in3, OUTPUT);
+    pinMode(_in4, OUTPUT);
+
+    _lastTime = millis();
+    if (_hasIMU)
+    {
+        sensors_event_t a, g, temp;
+        _imu->getEvent(&a, &g, &temp);
+        _accOffsetX = a.acceleration.x;
+        _heading0 = computeYaw(0);
+    }
 }
 
-void ControleMoteur::updateMoteurs()
+void ControleMoteur::attachIMU(Adafruit_MPU6050 &imu)
 {
-    // Conversion de la vitesse des moteurs en commande unipolaire
-    vitesseMoteur1 = map(vitesseMoteur1, -100, 100, -45, 45);
-    vitesseMoteur2 = map(vitesseMoteur2, -100, 100, -45, 45);
-
-    // Correction de la vitesse des moteurs en fonction du frottement
-    float vitMotD_corrige = vitesseMoteur1 / 100.0 * (1.0 + alphaFrottement);
-    float vitMotG_corrige = vitesseMoteur2 / 100.0 * (1.0 + alphaFrottement);
-
-    // Saturation des commandes unipolaires
-    vitMotD_corrige = constrain(vitMotD_corrige, -0.45, 0.45);
-    vitMotG_corrige = constrain(vitMotG_corrige, -0.45, 0.45);
-
-    float pwmD1 = 255 * (0.5 - vitMotD_corrige + dir);
-    float pwmD2 = 255 * (0.5 + vitMotD_corrige - dir);
-    float pwmG1 = 255 * (0.5 + vitMotG_corrige + dir);
-    float pwmG2 = 255 * (0.5 - vitMotG_corrige - dir);
-
-    //Serial.printf("pwmD1: %f, pwmD2: %f, pwmG1: %f, pwmG2: %f\n", pwmD1, pwmD2, pwmG1, pwmG2);
-
-    // Saturation des commandes PWM
-    pwmD1 = constrain(pwmD1, 0, 250);
-    pwmD2 = constrain(pwmD2, 0, 250);
-    pwmG1 = constrain(pwmG1, 0, 250);
-    pwmG2 = constrain(pwmG2, 0, 250);
-
-    //Commande unipolaire des moteurs en PWM
-    ledcWrite(2, pwmD1);
-    ledcWrite(3, pwmD2);
-    ledcWrite(4, pwmG1);
-    ledcWrite(5, pwmG2);
+    _imu = &imu;
+    _hasIMU = true;
 }
 
-void ControleMoteur::setAlphaFrottement(float alphaFrottement)
+void ControleMoteur::setTargetSpeeds(int16_t leftPct, int16_t rightPct)
 {
-    this->alphaFrottement = constrain(alphaFrottement, 0, 1);
+    _targetL = constrain(leftPct, -100, 100);
+    _targetR = constrain(rightPct, -100, 100);
 }
 
-void ControleMoteur::setDir(float dir)
+void ControleMoteur::setRampRate(float pctPerSec) { _rampRate = max(1.0f, pctPerSec); }
+void ControleMoteur::setFrictionAlpha(float a) { _alphaFrot = constrain(a, 0.0f, 1.0f); }
+void ControleMoteur::enableHeadingCorrection(bool e) { _headingCorr = e; }
+
+void ControleMoteur::calibrateFriction(uint32_t ms)
 {
-    this->dir = constrain(dir, -0.2, 0.2);
-    // Serial.printf("%1.7f\n", this->dir);
+    uint32_t t0 = millis();
+    float sumL = 0, sumR = 0;
+    int n = 0;
+    while (millis() - t0 < ms)
+    {
+        sumL += _currentL;
+        sumR += _currentR;
+        n++;
+        delay(5);
+    }
+    _frictionOffsetL = sumL / n;
+    _frictionOffsetR = sumR / n;
 }
+
+void ControleMoteur::update()
+{
+    uint32_t now = millis();
+    float dt = (now - _lastTime) * 1e-3f;
+    _lastTime = now;
+
+    float corr = 0;
+    if (_headingCorr && _hasIMU)
+    {
+        float yaw = computeYaw(dt);
+        float e = yaw - _heading0;
+        _errInt += e * dt;
+        corr = _kp * e + _ki * _errInt + _kd * ((e - _lastErr) / dt);
+        _lastErr = e;
+    }
+
+    auto ramp = [&](float &c, float t)
+    {float d=t-c, m=_rampRate*dt; c+=constrain(d,-m,m); };
+    ramp(_currentL, _targetL);
+    ramp(_currentR, _targetR);
+
+    float vL = _currentL * (1 + _alphaFrot) - _frictionOffsetL + corr;
+    float vR = _currentR * (1 + _alphaFrot) - _frictionOffsetR - corr;
+
+    applyPWM(vL, vR);
+
+    if (_hasIMU)
+        updateVelocity(dt);
+}
+
+void ControleMoteur::applyPWM(float lv, float rv)
+{
+    auto toP = [&](float v)
+    { return uint8_t(255 * abs(constrain(v, -100, 100)) / 100.0f); };
+    uint8_t pL = toP(lv), pR = toP(rv);
+    if (lv >= 0)
+    {
+        ledcWrite(_ch1, pL);
+        ledcWrite(_ch2, 0);
+    }
+    else
+    {
+        ledcWrite(_ch1, 0);
+        ledcWrite(_ch2, pL);
+    }
+    if (rv >= 0)
+    {
+        ledcWrite(_ch3, pR);
+        ledcWrite(_ch4, 0);
+    }
+    else
+    {
+        ledcWrite(_ch3, 0);
+        ledcWrite(_ch4, pR);
+    }
+}
+
+float ControleMoteur::computeYaw(float dt)
+{
+    sensors_event_t a, g, temp;
+    _imu->getEvent(&a, &g, &temp);
+    static float y = 0;
+    y += g.gyro.z * dt;
+    return y;
+}
+
+void ControleMoteur::updateVelocity(float dt)
+{
+    sensors_event_t a, g, temp;
+    _imu->getEvent(&a, &g, &temp);
+    float ax = (a.acceleration.x - _accOffsetX) * G_TO_MS2;
+    _vel += ax * dt;
+}
+
+float ControleMoteur::getLinearSpeed() const { return _vel; }

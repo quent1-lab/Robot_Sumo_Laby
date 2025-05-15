@@ -6,7 +6,7 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
-#include <controleMoteur.h>
+#include <ControleMoteur.h>
 #include <freertos/FreeRTOS.h>
 #include <melodie.h>
 #include <Encodeur.h>
@@ -20,7 +20,7 @@ QueueHandle_t queueEnvoie;
 
 // ----------------------- Déclaration des variables des moteurs ---------------------
 
-ControleMoteur moteurs(19, 18, 5, 17);
+ControleMoteur cm(19, 18, 5, 17);
 int vitesseMoteurG = 0;
 int vitesseMoteurD = 0;
 
@@ -145,7 +145,7 @@ void controle(void *parameters)
     if (mpu_ok)
     {
       // Acquisition
-      mpu.getEvent(&a, &g, &temp);
+      // mpu.getEvent(&a, &g, &temp);
 
       // Calcul des angles
       // thetaG = atan2(a.acceleration.y, a.acceleration.x); // Angle projeté
@@ -179,17 +179,17 @@ void controle(void *parameters)
 
     if (tension_ok == false)
     {
-      moteurs.setVitesses(0, 0);
+      cm.setTargetSpeeds(0, 0);
     }
     else
     {
       // float theta_consigne = asservissementVitesse(consigne_v, vitesse_F);
       float coefDirD = (rayon_consigne > 0) ? rayon_consigne : 0;
       float coefDirG = (rayon_consigne > 0) ? 0 : rayon_consigne;
-      moteurs.setVitesses(100 * consigne_v + coefDirD, 100 * consigne_v + coefDirG);
+      cm.setTargetSpeeds(100 * consigne_v + coefDirD, 100 * consigne_v + coefDirG);
     }
 
-    moteurs.updateMoteurs();
+    cm.update();
     FlagCalcul = 1;
 
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(Te));
@@ -298,10 +298,21 @@ void setup()
   }
   else
   {
-    Serial.println("MPU6050 Found!");
+    mpu_ok = true;
+    cm.attachIMU(mpu); 
+    mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
+    mpu.setGyroRange(MPU6050_RANGE_2000_DEG);
+    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   }
 
   sharpArray.begin();
+  cm.begin();
+
+  //cm.calibrateFriction(2000);
+  cm.setRampRate(80);
+  cm.setFrictionAlpha(0.1);
+  cm.enableHeadingCorrection(false);
+  cm.setTargetSpeeds(0,0);
 
   xTaskCreate(controle, "controle", 10000, NULL, 5, NULL);
   xTaskCreate(vReceptionBT, "vReceptionBT", 10000, NULL, 8, NULL);
@@ -315,12 +326,11 @@ void setup()
   A_v = 1 / (1 + Tau_v / Te);
   B_v = Tau_v / Te;
 
-  encodeur.init(0, 0, 0, 34, 255, 22, 34);
+  // encodeur.init(0, 0, 0, 34, 255, 22, 34);
 
   SerialBT.begin("Robot_SUMO"); // Nom du module bluetooth
   SerialBT.register_callback(callback);
 
-  moteurs.setAlphaFrottement(0.15);
   delay(100);
   music.bib(2, 2000, 100, 100);
 }
@@ -377,7 +387,7 @@ void reception(char ch)
     }
     if (commande == "af")
     {
-      moteurs.setAlphaFrottement(valeur.toFloat());
+      cm.setFrictionAlpha(valeur.toFloat());
     }
     if (commande == "th")
     {
