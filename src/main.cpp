@@ -531,13 +531,11 @@ void testMotors() {
         motors.setSpeed( 50,-50);
         break;
     }
-    motors.update();
   }
   else if (now - t0 < PHASE_DURATION + PAUSE_DURATION) {
     // pause entre phases
     if (phase < 4) {
       motors.setSpeed(0, 0);
-      motors.update();
       Serial.print("\rPause...               ");
     }
   }
@@ -548,10 +546,6 @@ void testMotors() {
     if (phase > 4) {
       Serial.println("\n=== Fin des tests ===");
       motors.stop();
-      while (true) {
-        motors.update();  // on garde update actif pour couper proprement
-        delay(100);
-      }
     }
   }
 }
