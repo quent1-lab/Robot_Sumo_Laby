@@ -407,7 +407,7 @@ void reception(char ch)
     }
     if (commande == "mel")
     {
-      melodie.choisirMelodie(valeur.toInt());
+      music.choisirMelodie(valeur.toInt());
     }
     if (commande == "co")
     {
