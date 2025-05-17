@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 
-#include "WebUI.h"
+//#include "WebUI.h"
 
 #include <SharpIRArray.h>
 #include <controleMoteur.h>
@@ -31,8 +31,11 @@ constexpr uint32_t PAUSE_DURATION = 1000;
 
 // ------------------------- Déclaration des variables des pins ------------------------
 
-const int pinLed = 23;
-const int pinBuzzer = 26;
+const int pinLed = 13;
+const int pinBuzzer = 12;
+const int pinStartstop = 14;
+
+//a vérifier
 const int pinEncD_A = 16;
 const int pinEncD_B = 4;
 const int pinEncG_A = 38;
@@ -137,7 +140,97 @@ float consG = 0, consD = 0;
 
 float kp = 0.3; // Gain proportionnel (à ajuster selon les tests)
 
-WebUI ui("POCO_QT1", "Oul0uCoupTer4321", "robot-sumo");
+//WebUI ui("POCO_QT1", "Oul0uCoupTer4321", "robot-sumo");
+
+// --------------------- Serial ---------------------
+
+void sendSerial(){
+
+  Serial.print("SUMO-P ");   //Header
+
+  //Line sensors
+  for (uint8_t i = 0; i < lineSensors.getSensorCount(); i++) {
+    Serial.print(lineSensors.getValue(i), 3);
+    Serial.print(" ");
+  }
+
+  //Distance sensors
+  Serial.printf("%d %d %d %d ", dflAvG, dflAvD, dflArG, dflArD);
+
+  //Motors
+  Serial.printf("%d %d ", vitesseMoteurG, vitesseMoteurD);
+
+  //Tension batterie
+  int pourcentage = static_cast<int>((tension - 6.5) / (8.5 - 6.5) * 100);
+  Serial.printf("%d", pourcentage);
+  
+}
+
+void readSerial()
+{
+  if (Serial.available())
+  {
+    String input = Serial.readStringUntil('\n');
+    if (input.startsWith("SUMO-M ")) {
+      //Commande moteur
+      // Lecture brute des données (ex: "SUMO-M \x00\x80")
+      // On récupère les deux octets après "SUMO-M "
+      if (input.length() >= 9) {
+        // Les caractères après "SUMO-M " sont les octets bruts (en ASCII)
+        uint8_t index = (uint8_t)input[7];
+        uint8_t vitesse = (uint8_t)input[8];
+
+        if (index == 0) {
+          vitesseMoteurG = (int8_t)vitesse; // conversion signed
+        } else if (index == 1) {
+          vitesseMoteurD = (int8_t)vitesse; // conversion signed
+        }
+
+        //  Appliquer les consignes aux moteurs
+      if (start)
+      {
+
+        consG = constrain(vitesseMoteurG, -MAX_COMMANDE, MAX_COMMANDE);
+        consD = constrain(vitesseMoteurD, -MAX_COMMANDE, MAX_COMMANDE);
+        moteurs.setSpeed(vitesseMoteurG, vitesseMoteurD);
+      }
+      else
+      {
+        moteurs.stop();
+      }
+      moteurs.update();
+
+      }
+
+    } else if (input.startsWith("SUMO-B ")) {
+      //Commande buzzer
+      // Lecture brute des données (ex: "SUMO-B \x02")
+      // On récupère les deux octets après "SUMO-B "
+      if (input.length() >= 8) {
+        // Les caractères après "SUMO-B " sont les octets bruts (en ASCII)
+        uint8_t musique = (uint8_t)input[7];
+
+        Serial.printf("MUSIQUE %d", musique);
+
+        music.choisirMelodie(musique);
+      }
+    } else if (input.startsWith("SUMO-L ")) {
+      //Commande LED
+
+      digitalWrite(pinLed, !digitalRead(pinLed));
+
+    }
+
+    //Mode debug
+    afficherTexte("texte");
+
+  }
+}
+
+
+
+
+// --------------------- Main ---------------------
 
 void setup()
 {
@@ -148,6 +241,8 @@ void setup()
   pinMode(pinLed, OUTPUT);
   //pinMode(startStop, INPUT);
   pinMode(pinBatterie, INPUT);
+
+  pinMode(pinStartstop, INPUT);
 
   sharpArray.begin();
   lineSensors.begin();
@@ -167,6 +262,8 @@ void setup()
   moteurs.enableHeadingControl(false);
   moteurs.setHeadingTarget(0);
   moteurs.setSpeed(0, 0);
+
+  /*
 
   // — Instanciation des widgets (tuiles) —
   ui.exposeVariable("tension", VarType::FLOAT, []()
@@ -217,6 +314,8 @@ void setup()
   // Démarrage complet du serveur web
   //ui.begin();
 
+  */
+
   // xTaskCreate(controle, "controle", 10000, NULL, 5, NULL);
 
   music.bib(1, 1000, 100, 100);
@@ -229,18 +328,22 @@ void loop()
   //ui.loop(500);
   music.update();
   sharpArray.update();
-  bt.update();
+  //bt.update();
   lineSensors.update();
 
+  /*
   for (uint8_t i = 0; i < lineSensors.getSensorCount(); i++) {
     Serial.print(lineSensors.getValue(i), 3);
     Serial.print(i < lineSensors.getSensorCount()-1 ? ", " : "\n");
   }
+  */
 
   if (bt.wasClicked())
   {
     start = !start;
   }
+
+  start = digitalRead(pinStartstop);
 
   // 2) Lecture capteurs distance
   if (sharpArray.getADSOk())
@@ -263,6 +366,7 @@ void loop()
   float vmes = raw * (3.3f / 4095.0f);
   tension = 3.472f * vmes + 0.6f; // Ajusté pour compenser l'offset
 
+  /*
   // 5) Calcul de la consigne des moteurs pour suivre un objet à 10 cm
   float distanceCons = 100.0; // Distance cible en mm (10 cm)
 
@@ -286,6 +390,14 @@ void loop()
     moteurs.stop();
   }
   moteurs.update();
+  */
+
+
+
+  //Envoi des données sur le port série
+  sendSerial();
+  //Lecture des données sur le port série
+  readSerial();
 
   unsigned long endTime = micros(); // End measuring time
   // Serial.printf("Execution time: %lu microseconds\n", endTime - startTime);
