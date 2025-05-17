@@ -43,7 +43,7 @@ void LineSensor::endCalibration()
             // cas de surface uniforme -> on donne un petit pas
             _maxRaw[i] = _minRaw[i] + 1;
         }
-        Serial.printf("Capteur %d: min=%d, max=%d\n", i, _minRaw[i], _maxRaw[i]);
+        //Serial.printf("Capteur %d: min=%d, max=%d\n", i, _minRaw[i], _maxRaw[i]);
     }
 }
 

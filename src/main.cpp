@@ -9,10 +9,13 @@
 #include <bouton.h>
 #include <Encodeur.h>
 #include "LineSensor.h"
+#include "ecranOLED.h"
 
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
 
 #include <freertos/FreeRTOS.h>
 
@@ -31,13 +34,20 @@ constexpr uint32_t PAUSE_DURATION = 1000;
 
 // ------------------------- Déclaration des variables des pins ------------------------
 
-const int pinLed = 23;
-const int pinBuzzer = 26;
+const int pinLed = 13;
+const int pinBuzzer = 12;
+const int pinStartstop = 14;
+
+//a vérifier
 const int pinEncD_A = 16;
 const int pinEncD_B = 4;
 const int pinEncG_A = 38;
 const int pinEncG_B = 35;
 const int pinBatterie = 34;
+
+// ------------------------- Déclaration écran OLED ------------------------
+
+ecranOLED ecran;
 
 /// ------------------------- Déclaration des variables du start and stop ------------------------
 bool start = true; // Variable pour le démarrage
@@ -59,9 +69,17 @@ SharpIRArray sharpArray; // Capteur Sharp IR
 // ------------------------- Déclaration des variables des capteurs de ligne ------------------------
 
 // Déclaration des broches : 7 capteurs
-const uint8_t pins[7] = {36, 26, 39, 25, 35, 33, 32};
-float val[7]; // Valeurs normalisées
-LineSensor lineSensors(pins, 7);
+const uint8_t pins[5] = {33, 36, 35, 32, 39};
+float lineSensorsValue[5] = {0, 0, 0, 0, 0};
+int backPin[2] = {25, 26};
+int backLineSensorsValue[2] = {0, 0};
+LineSensor lineSensors(pins, 5);
+float consigne = 0;
+unsigned long lastTime = millis();
+float Kp = 0.3;
+float Kd = 0.1;
+float K = 1;
+float commande;
 
 // ------------------------- Déclaration des variables du mpu ------------------------
 
@@ -131,13 +149,119 @@ void controle(void *parameters)
 // --------------------- Variable ---------------------
 // Variables exposées sur l’UI
 int dflAvG = 0, dflAvD = 0, dflArG = 0, dflArD = 0;
-float angleX = 0, angleY = 0, angleZ = 0;
 float tension = 0;
 float consG = 0, consD = 0;
 
-float kp = 0.3; // Gain proportionnel (à ajuster selon les tests)
 
 WebUI ui("POCO_QT1", "Oul0uCoupTer4321", "robot-sumo");
+
+// --------------------- Wifi debug --------------------
+
+
+const char *ssid = "ESP32_AP";
+const char *password = "12345678";
+
+WiFiUDP udp;
+const int udpPort = 4210;
+
+void sendUDP() {
+  udp.beginPacket(udp.remoteIP(), udp.remotePort());
+  const char* data = "test";
+  udp.write((const uint8_t*)data, strlen(data));
+  udp.endPacket();
+}
+
+void readUDP() {
+  int packetSize = udp.parsePacket();
+  if (packetSize) {
+    char buffer[255];
+    int len = udp.read(buffer, 255);
+    if (len > 0) buffer[len] = '\0';
+
+    Serial.print("Reçu : ");
+    Serial.println(buffer);
+  }
+}
+
+// --------------------- Serial debug ---------------------
+
+void sendSerial(){
+
+  Serial.print("SUMO-P ");   //Header
+
+  //Line sensors
+  for (uint8_t i = 0; i < 5; i++) {
+    Serial.print(lineSensorsValue[i], 3);
+    Serial.print(" ");
+  }
+  for (uint8_t i = 0; i < 2; i++) {
+    Serial.print(backLineSensorsValue[i], 3);
+    Serial.print(" ");
+  }
+
+  //Distance sensors & motors
+  Serial.printf("%d %d %d %d ", dflAvG, dflAvD, dflArG, dflArD);
+
+  //Tension batterie
+  int pourcentage = static_cast<int>((tension - 6.5) / (8.5 - 6.5) * 100);
+  Serial.printf("%d", pourcentage);
+  
+}
+
+void readSerial()
+{
+  if (Serial.available())
+  {
+    String input = Serial.readStringUntil('\n');
+    if (input.startsWith("SUMO-M ")) {
+      //Commande moteur
+      // Lecture brute des données (ex: "SUMO-M \x00\x80")
+      // On récupère les deux octets après "SUMO-M "
+      if (input.length() >= 9) {
+        // Les caractères après "SUMO-M " sont les octets bruts (en ASCII)
+        uint8_t index = (uint8_t)input[7];
+        uint8_t vitesse = (uint8_t)input[8];
+
+        if (index == 0) {
+          vitesseMoteurG = (int8_t)vitesse; // conversion signed
+        } else if (index == 1) {
+          vitesseMoteurD = (int8_t)vitesse; // conversion signed
+        }
+
+        //  Appliquer les consignes aux moteurs
+        consG = constrain(vitesseMoteurG, -MAX_COMMANDE, MAX_COMMANDE);
+        consD = constrain(vitesseMoteurD, -MAX_COMMANDE, MAX_COMMANDE);
+        moteurs.setSpeed(vitesseMoteurG, vitesseMoteurD);
+        moteurs.update();
+
+      }
+
+    } else if (input.startsWith("SUMO-B ")) {
+      //Commande buzzer
+      // Lecture brute des données (ex: "SUMO-B \x02")
+      // On récupère les deux octets après "SUMO-B "
+      if (input.length() >= 8) {
+        // Les caractères après "SUMO-B " sont les octets bruts (en ASCII)
+        uint8_t musique = (uint8_t)input[7];
+        music.choisirMelodie(musique);
+      }
+    } else if (input.startsWith("SUMO-L ")) {
+      //Commande LED
+
+      digitalWrite(pinLed, !digitalRead(pinLed));
+
+    }
+
+    //Mode debug
+    ecran.afficherTexte("MODE DEBUG");
+
+  }
+}
+
+
+
+
+// --------------------- Main ---------------------
 
 void setup()
 {
@@ -145,12 +269,28 @@ void setup()
   Wire.begin();          // SDA, SCL
   Wire.setClock(400000); // ← I2C Fast Mode 400 kHz
 
+  // ---------- WIFI UDP debug --------------
+  /*
+  // Créer le point d'accès
+  WiFi.softAP(ssid, password);
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(IP);  // Ex : 192.168.4.1
+
+  udp.begin(udpPort);
+  Serial.println("UDP serveur démarré");
+  */
+  // ----------------------------------
+
   pinMode(pinLed, OUTPUT);
-  //pinMode(startStop, INPUT);
   pinMode(pinBatterie, INPUT);
+  pinMode(pinStartstop, INPUT);
 
   sharpArray.begin();
   lineSensors.begin();
+  pinMode(backPin[0], INPUT);
+  pinMode(backPin[1], INPUT);
+
   //bt.begin(bouton1, false); // Pin du bouton et temps d'appui pour le déclenchement
 
   // — Initialisation capteurs —
@@ -168,6 +308,10 @@ void setup()
   moteurs.setHeadingTarget(0);
   moteurs.setSpeed(0, 0);
 
+  ecran.begin();
+
+
+
   // — Instanciation des widgets (tuiles) —
   ui.exposeVariable("tension", VarType::FLOAT, []()
                     { return String(tension); }, [](const String &v)
@@ -181,21 +325,29 @@ void setup()
   ui.exposeVariable("Moteur Gauche", VarType::FLOAT, []()
                     { return String(consG); }, [](const String &v)
                     { consG = v.toFloat(); });
-  ui.exposeVariable("kp", VarType::FLOAT, []()
-                    { return String(kp); }, [](const String &v)
-                    { kp = v.toFloat(); });
   ui.exposeVariable("AvG", VarType::FLOAT, []()
                     { return String(dflAvG); }, [](const String &v)
                     { dflAvG = v.toInt(); });
   ui.exposeVariable("AvD", VarType::FLOAT, []()
                     { return String(dflAvD); }, [](const String &v)
                     { dflAvD = v.toInt(); });
+  /*
   ui.exposeVariable("ArG", VarType::FLOAT, []()
                     { return String(dflArG); }, [](const String &v)
                     { dflArG = v.toInt(); });
   ui.exposeVariable("ArD", VarType::FLOAT, []()
                     { return String(dflArD); }, [](const String &v)
                     { dflArD = v.toInt(); });
+  */
+  ui.exposeVariable("Commande", VarType::FLOAT, []()
+                    { return String(commande); }, [](const String &v)
+                    { commande = v.toFloat(); });
+  ui.exposeVariable("Kp", VarType::FLOAT, []()
+                    { return String(Kp); }, [](const String &v)
+                    { Kp = v.toFloat(); });
+  ui.exposeVariable("Kd", VarType::FLOAT, []()
+                    { return String(Kd); }, [](const String &v)
+                    { Kd = v.toFloat(); });
 
   auto *btn = new ButtonWidget("Bib", 1500, 500);
 
@@ -211,11 +363,14 @@ void setup()
   ui.addWidget(new SliderWidget("Moteur Gauche", "Moteur Gauche", -100, 100, 1));
   ui.addWidget(new SliderWidget("AvG", "AvG", 0, 5000, 1));
   ui.addWidget(new SliderWidget("AvD", "AvD", 0, 5000, 1));
-  ui.addWidget(new SliderWidget("ArG", "ArG", 0, 5000, 1));
-  ui.addWidget(new SliderWidget("ArD", "ArD", 0, 5000, 1));
+  //ui.addWidget(new SliderWidget("ArG", "ArG", 0, 5000, 1));
+  //ui.addWidget(new SliderWidget("ArD", "ArD", 0, 5000, 1));
+  ui.addWidget(new SliderWidget("Kp","Kp", 0, 10, 0.1));
+  ui.addWidget(new SliderWidget("Kd", "Kd", 0, 10, 0.1));
+  ui.addWidget(new LabelWidget("Commande", "Commande"));
 
   // Démarrage complet du serveur web
-  //ui.begin();
+  ui.begin();
 
   // xTaskCreate(controle, "controle", 10000, NULL, 5, NULL);
 
@@ -224,24 +379,25 @@ void setup()
 
 void loop()
 {
+
   unsigned long startTime = micros(); // Start measuring time
   // 1) Mise à jour WebUI (broadcast périodique)
-  //ui.loop(500);
+  ui.loop(500);
   music.update();
   sharpArray.update();
-  bt.update();
+  //bt.update();
   lineSensors.update();
 
-  for (uint8_t i = 0; i < lineSensors.getSensorCount(); i++) {
-    Serial.print(lineSensors.getValue(i), 3);
-    Serial.print(i < lineSensors.getSensorCount()-1 ? ", " : "\n");
-  }
+  lineSensors.getAllValues(lineSensorsValue);
+  start = digitalRead(pinStartstop);
+  backLineSensorsValue[0] = digitalRead(backPin[0]);
+  backLineSensorsValue[1] = digitalRead(backPin[1]);
 
   if (bt.wasClicked())
   {
     start = !start;
   }
-
+  
   // 2) Lecture capteurs distance
   if (sharpArray.getADSOk())
   {
@@ -263,6 +419,7 @@ void loop()
   float vmes = raw * (3.3f / 4095.0f);
   tension = 3.472f * vmes + 0.6f; // Ajusté pour compenser l'offset
 
+  /*
   // 5) Calcul de la consigne des moteurs pour suivre un objet à 10 cm
   float distanceCons = 100.0; // Distance cible en mm (10 cm)
 
@@ -286,11 +443,46 @@ void loop()
     moteurs.stop();
   }
   moteurs.update();
+  */
+
+
+
+  //Envoi des données sur le port série
+  sendSerial();
+  //Lecture des données sur le port série
+  readSerial();
+
+
+  //sendUDP();
+  //readUDP();
 
   unsigned long endTime = micros(); // End measuring time
   // Serial.printf("Execution time: %lu microseconds\n", endTime - startTime);
 
   delay(50);
+}
+
+void asservissementLigne() {
+
+  float diff = lineSensorsValue[1] - lineSensorsValue[3];
+  float error = consigne - diff;
+  unsigned long dt = millis() - lastTime;
+  commande = ((Kp + Kd/dt) * error) * K;
+
+  /*
+  //  Appliquer les consignes aux moteurs
+  if (start)
+  {
+    moteurs.setSpeed(consMotG, consMotD);
+  }
+  else
+  {
+    moteurs.stop();
+  }
+  moteurs.update();
+  */
+
+  lastTime = millis();
 }
 
 void getInclinaison(float &angleX, float &angleY, float &angleZ)
