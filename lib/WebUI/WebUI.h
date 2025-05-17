@@ -518,6 +518,7 @@ private:
       function createLabel(cfg) {
         const card = document.createElement("div");
         card.className = "card";
+        card.innerHTML = `<label>${cfg.label}</label>`;
         const lbl = document.createElement("div");
         lbl.className = "label";
         lbl.dataset.var = cfg.var;
