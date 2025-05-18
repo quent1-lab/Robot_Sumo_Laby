@@ -26,6 +26,7 @@
 ControleMoteur moteurs(19, 18, 5, 17);
 int vitesseMoteurG = 0;
 int vitesseMoteurD = 0;
+int commandeOffset = 50;
 
 // Durée (ms) de chaque phase de test
 constexpr uint32_t PHASE_DURATION = 3000;
@@ -37,6 +38,9 @@ constexpr uint32_t PAUSE_DURATION = 1000;
 const int pinLed = 13;
 const int pinBuzzer = 12;
 const int pinStartstop = 14;
+
+const int pinBtn = 0;
+const int pinBtn2 = 2;
 
 //a vérifier
 const int pinEncD_A = 16;
@@ -50,15 +54,13 @@ const int pinBatterie = 34;
 ecranOLED ecran;
 
 /// ------------------------- Déclaration des variables du start and stop ------------------------
-bool start = true; // Variable pour le démarrage
+bool start = false; // Variable pour le démarrage
 
 // ------------------------- Déclaration des variables pour la mélodie ------------------------
 
 Melodie music(pinBuzzer);
 
 // ------------------------- Déclaration des variables du bouton ------------------------
-Bouton bt;  // Pin du bouton et temps d'appui pour le déclenchement
-Bouton bt2; // Pin du bouton et temps d'appui pour le déclenchement
 
 // ------------------------- Déclaration des variables des capteurs de distance ------------------------
 
@@ -74,12 +76,70 @@ float lineSensorsValue[5] = {0, 0, 0, 0, 0};
 int backPin[2] = {25, 26};
 int backLineSensorsValue[2] = {0, 0};
 LineSensor lineSensors(pins, 5);
+float lastError = 0;
 float consigne = 0;
 unsigned long lastTime = millis();
+float coefEquilibrage = 1;
 float Kp = 0.3;
 float Kd = 0.1;
 float K = 1;
 float commande;
+int mode = 0;
+
+void asservissementLigne() {
+
+  if(lineSensorsValue[0] < 0.985) {
+    //virage gauche
+    vitesseMoteurG = -30;
+    vitesseMoteurD = 30*coefEquilibrage;
+
+    moteurs.setSpeed(vitesseMoteurD, -vitesseMoteurG);
+    moteurs.update();
+
+    mode = 1;
+
+  } else if (lineSensorsValue[4] < 0.985) {
+    //virage droite
+    vitesseMoteurG = 30;
+    vitesseMoteurD = -30*coefEquilibrage;
+
+    moteurs.setSpeed(vitesseMoteurD, -vitesseMoteurG);
+    moteurs.update();
+
+    mode = 2;
+
+  } else if (lineSensorsValue[1] < 0.985 || lineSensorsValue[2] < 0.985 || lineSensorsValue[3] < 0.985) {
+
+    
+    // Suivi ligne
+    float diff = lineSensorsValue[1] - lineSensorsValue[3];
+    float error = consigne - diff;
+    unsigned long dt = millis() - lastTime;
+    commande = (error * Kp - Kd * (error - lastError) / dt)*K;
+    Serial.printf("diff:%d error:%d dt:%d commande:%d lastTime:%", diff, error, dt, commande, lastTime);
+
+    vitesseMoteurG = commandeOffset - (int)commande;
+    vitesseMoteurD = int((commandeOffset + (int)commande)*coefEquilibrage);
+
+    moteurs.setSpeed(vitesseMoteurD, -vitesseMoteurG);
+    moteurs.update();
+    lastError = error;
+
+    mode = 3;
+  } else {
+    //ligne perdue -> virage gauche 180
+    vitesseMoteurG = -30;
+    vitesseMoteurD = 30*coefEquilibrage;
+
+    moteurs.setSpeed(vitesseMoteurD, -vitesseMoteurG);
+    moteurs.update();
+
+    mode = 4;
+  }
+
+  
+  lastTime = millis();
+}
 
 // ------------------------- Déclaration des variables du mpu ------------------------
 
@@ -291,7 +351,8 @@ void setup()
   pinMode(backPin[0], INPUT);
   pinMode(backPin[1], INPUT);
 
-  //bt.begin(bouton1, false); // Pin du bouton et temps d'appui pour le déclenchement
+  pinMode(pinBtn, INPUT_PULLUP);
+  pinMode(pinBtn2, INPUT_PULLDOWN);
 
   // — Initialisation capteurs —
   if (!mpu.begin())
@@ -303,7 +364,7 @@ void setup()
   moteurs.begin();
   moteurs.attachMPU(mpu);
   moteurs.setFriction(49.0, 49.0);
-  moteurs.setRampRate(200); // 200%/s
+  moteurs.setRampRate(50); // 100%/s
   moteurs.enableHeadingControl(false);
   moteurs.setHeadingTarget(0);
   moteurs.setSpeed(0, 0);
@@ -331,6 +392,22 @@ void setup()
   ui.exposeVariable("AvD", VarType::FLOAT, []()
                     { return String(dflAvD); }, [](const String &v)
                     { dflAvD = v.toInt(); });
+  ui.exposeVariable("commandeOffset", VarType::INT, []()
+                    { return String(commandeOffset); }, [](const String &v)
+                    { commandeOffset = v.toInt(); });
+  ui.exposeVariable("vitesseMoteurG", VarType::INT, []()
+                    { return String(vitesseMoteurG); }, [](const String &v)
+                    { vitesseMoteurG = v.toInt(); });
+  ui.exposeVariable("vitesseMoteurD", VarType::INT, []()
+                    { return String(vitesseMoteurD); }, [](const String &v)
+                    { vitesseMoteurD = v.toInt(); });
+  ui.exposeVariable("mode", VarType::INT, []()
+                    { return String(mode); }, [](const String &v)
+                    { mode = v.toInt(); });
+  ui.exposeVariable("coefEquilibrage", VarType::FLOAT, []()
+                    { return String(coefEquilibrage); }, [](const String &v)
+                    { coefEquilibrage = v.toFloat(); });            
+  
   /*
   ui.exposeVariable("ArG", VarType::FLOAT, []()
                     { return String(dflArG); }, [](const String &v)
@@ -348,6 +425,9 @@ void setup()
   ui.exposeVariable("Kd", VarType::FLOAT, []()
                     { return String(Kd); }, [](const String &v)
                     { Kd = v.toFloat(); });
+  ui.exposeVariable("K", VarType::FLOAT, []()
+                    { return String(K); }, [](const String &v)
+                    { K = v.toFloat(); });
 
   auto *btn = new ButtonWidget("Bib", 1500, 500);
 
@@ -365,9 +445,15 @@ void setup()
   ui.addWidget(new SliderWidget("AvD", "AvD", 0, 5000, 1));
   //ui.addWidget(new SliderWidget("ArG", "ArG", 0, 5000, 1));
   //ui.addWidget(new SliderWidget("ArD", "ArD", 0, 5000, 1));
-  ui.addWidget(new SliderWidget("Kp","Kp", 0, 10, 0.1));
+  ui.addWidget(new SliderWidget("Kp","Kp", 0, 100, 0.1));
   ui.addWidget(new SliderWidget("Kd", "Kd", 0, 10, 0.1));
+  ui.addWidget(new SliderWidget("K", "K", 0, 100, 0.1));
+  ui.addWidget(new SliderWidget("coefEquilibrage", "coefEquilibrage", 0, 3, 0.01));
+  ui.addWidget(new SliderWidget("commandeOffset", "commandeOffset", -100, 100, 1));
   ui.addWidget(new LabelWidget("Commande", "Commande"));
+  ui.addWidget(new LabelWidget("vitesseMoteurG", "vitesseMoteurG"));
+  ui.addWidget(new LabelWidget("vitesseMoteurD", "vitesseMoteurD"));
+  ui.addWidget(new LabelWidget("mode", "mode"));
 
   // Démarrage complet du serveur web
   ui.begin();
@@ -375,6 +461,10 @@ void setup()
   // xTaskCreate(controle, "controle", 10000, NULL, 5, NULL);
 
   music.bib(1, 1000, 100, 100);
+
+  //Calibrations capteurs
+  //lineSensors.beginCalibration();
+  //ecran.afficherTexte("CALIB SENSORS");
 }
 
 void loop()
@@ -383,9 +473,10 @@ void loop()
   unsigned long startTime = micros(); // Start measuring time
   // 1) Mise à jour WebUI (broadcast périodique)
   ui.loop(500);
+  
+  // -----update-----------
   music.update();
   sharpArray.update();
-  //bt.update();
   lineSensors.update();
 
   lineSensors.getAllValues(lineSensorsValue);
@@ -393,10 +484,28 @@ void loop()
   backLineSensorsValue[0] = digitalRead(backPin[0]);
   backLineSensorsValue[1] = digitalRead(backPin[1]);
 
-  if (bt.wasClicked())
+  /*
+  if (!digitalRead(pinBtn))
   {
     start = !start;
+    music.bib(1, 1000, 100, 100);
+    ecran.afficherTexte("STARTED");
+    moteurs.setSpeed(commandeOffset, commandeOffset);
+
   }
+  */
+  
+
+  /*
+  if (digitalRead(pinBtn2))
+  {
+    //lineSensors.endCalibration();
+    music.bib(2, 1000, 100, 100);
+    ecran.afficherTexte("GO");
+  }
+  */
+
+  asservissementLigne();
   
   // 2) Lecture capteurs distance
   if (sharpArray.getADSOk())
@@ -460,29 +569,6 @@ void loop()
   // Serial.printf("Execution time: %lu microseconds\n", endTime - startTime);
 
   delay(50);
-}
-
-void asservissementLigne() {
-
-  float diff = lineSensorsValue[1] - lineSensorsValue[3];
-  float error = consigne - diff;
-  unsigned long dt = millis() - lastTime;
-  commande = ((Kp + Kd/dt) * error) * K;
-
-  /*
-  //  Appliquer les consignes aux moteurs
-  if (start)
-  {
-    moteurs.setSpeed(consMotG, consMotD);
-  }
-  else
-  {
-    moteurs.stop();
-  }
-  moteurs.update();
-  */
-
-  lastTime = millis();
 }
 
 void getInclinaison(float &angleX, float &angleY, float &angleZ)
