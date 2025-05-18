@@ -744,7 +744,7 @@ void modePasSortir()
     bordureDetecter = false;
   }
 
-  if ((lineSensorsValue[0] >= 0.99 || lineSensorsValue[1] > 0.99) && !bordureDetecter)
+  if ((lineSensorsValue[0] >= 0.99 || lineSensorsValue[4] > 0.99) && !bordureDetecter)
   {
     timeBordure = millis();
     bordureDetecter = true;
@@ -753,7 +753,7 @@ void modePasSortir()
     moteurs.setSpeed(-100, -100);
     music.bib(1, 500, 500, 100);
   }
-  else if ((lineSensorsValue[2] >= 0.99 || lineSensorsValue[3] > 0.99) && !bordureDetecter)
+  else if ((backLineSensorsValue[0]  == 1 || backLineSensorsValue[1]  == 1) && !bordureDetecter)
   {
     timeBordure = millis();
     bordureDetecter = true;
